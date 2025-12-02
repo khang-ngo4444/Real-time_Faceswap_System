@@ -1,10 +1,13 @@
 import cv2
+import os
 from insightface.app import FaceAnalysis
+
 
 # Initialize the model
 model = FaceAnalysis(name="buffalo_l", providers=['CUDAExecutionProvider'])
 model.prepare(ctx_id=0, det_size=(640, 640))
 cap = cv2.VideoCapture(0)
+os.environ["OMP_NUM_THREADS"] = "1"
 
 while True:
     ret, frame = cap.read()
