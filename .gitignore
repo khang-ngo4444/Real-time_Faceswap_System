@@ -1,3 +1,5 @@
 .venv/
+venv/
 .idea/
 model/
+inswapper_128.onnx
