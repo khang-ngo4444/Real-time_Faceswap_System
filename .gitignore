@@ -3,3 +3,4 @@ venv/
 .idea/
 model/
 inswapper_128.onnx
+test.py
