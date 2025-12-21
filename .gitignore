@@ -4,3 +4,4 @@ venv/
 model/
 inswapper_128.onnx
 test.py
+__pycache__/
