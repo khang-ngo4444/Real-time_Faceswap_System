@@ -2,12 +2,6 @@ import numpy as np
 import cv2
 
 class Compositor:
-    """
-    Compositor theo phong cách FaceFusion
-    - Sử dụng 3 loại mask: Box, Occlusion (XSeg), Region (BiSeNet)
-    - Giải quyết: tóc, tay che mặt, ear landmarks
-    """
-    
     def __init__(self):
         # XSeg model sẽ được load riêng (hoặc dùng model có sẵn)
         self.xseg_model = None  # Load từ models/xseg_2.onnx nếu có
@@ -34,45 +28,56 @@ class Compositor:
     
     def create_occlusion_mask(self, frame, face, parsing_mask):
         """
-        MASK LOẠI 2: Occlusion Mask - Phát hiện vật che (tay, vật thể)
-        Sử dụng XSeg model hoặc fallback sang edge detection
+        MASK LOẠI 2: Occlusion Mask - Improved: Edge + Skin difference để detect tay/che chắn tốt hơn
         """
         h, w = frame.shape[:2]
         occl_mask = np.zeros((h, w), dtype=np.uint8)
         
-        # Nếu có XSeg model → dùng AI detection
-        if self.xseg_model is not None:
-            # TODO: Implement XSeg inference
-            # occl_mask = self.xseg_model.predict(frame, face)
-            pass
-        
+        # Lấy bbox mở rộng hơn để capture tay chạm mặt
         bbox = cv2.boundingRect(face.landmark_2d_106.astype(np.int32))
         x, y, bw, bh = bbox
-        x1, y1 = max(0, x), max(0, y)
-        x2, y2 = min(w, x + bw), min(h, y + bh)
+        pad = int(max(bw, bh) * 0.4)  # Mở rộng mạnh hơn để bao tay
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(w, x + bw + pad)
+        y2 = min(h, y + bh + pad)
         
         if x2 <= x1 or y2 <= y1:
             return occl_mask
         
         face_roi = frame[y1:y2, x1:x2]
         
-        # Edge density detection
+        # 1. Edge detection (tune thấp hơn để bắt finger mỏng)
         gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
+        edges = cv2.Canny(gray, 30, 100)  # Giảm threshold để nhạy hơn
         
-        # Smooth và threshold
-        edges_blur = cv2.GaussianBlur(edges, (5, 5), 0)
-        _, occl_roi = cv2.threshold(edges_blur, 30, 255, cv2.THRESH_BINARY)
+        # 2. Skin detection (Hình thức đơn giản HSV để phân biệt tay vs mặt - tay thường ít "skin-like" hơn khi che)
+        hsv = cv2.cvtColor(face_roi, cv2.COLOR_BGR2HSV)
+        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+        skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        non_skin = cv2.bitwise_not(skin_mask)
         
-        # Morphology để làm sạch
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        occl_roi = cv2.morphologyEx(occl_roi, cv2.MORPH_CLOSE, kernel)
+        # Kết hợp edge + non_skin (tay thường có edge cao + ít skin hơn vùng mặt sạch)
+        occl_roi = cv2.bitwise_or(edges, non_skin)
         
-        # Chỉ giữ vùng trong face
+        # Blur nhẹ + threshold
+        occl_roi = cv2.GaussianBlur(occl_roi, (5, 5), 0)
+        _, occl_roi = cv2.threshold(occl_roi, 50, 255, cv2.THRESH_BINARY)
+        
+        # Morphology mạnh hơn để fill hole và connect finger
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+        occl_roi = cv2.morphologyEx(occl_roi, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+        
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        occl_roi = cv2.dilate(occl_roi, kernel_dilate, iterations=1)
+        
+        # Chỉ giữ vùng POTENTIAL trong face parsing (nếu có parsing_mask)
         if parsing_mask is not None:
             parse_roi = parsing_mask[y1:y2, x1:x2]
-            face_parse_mask = (parse_roi > 0).astype(np.uint8) * 255
-            occl_roi = cv2.bitwise_and(occl_roi, face_parse_mask)
+            potential_face = (parse_roi > 0).astype(np.uint8) * 255
+            # Hoặc mở rộng: potential_face = cv2.dilate(potential_face, kernel_dilate, iterations=2)
+            occl_roi = cv2.bitwise_and(occl_roi, potential_face)
         
         occl_mask[y1:y2, x1:x2] = occl_roi
         return occl_mask
@@ -104,8 +109,7 @@ class Compositor:
         h, w = parsing_mask.shape[:2]
         region_mask = np.zeros((h, w), dtype=np.uint8)
         
-        # QUAN TRỌNG: Loại bỏ TÓC và TAI khỏi swap mask
-        # Chỉ giữ lại: skin, nose, mouth, eyes, brows
+        #Loại bỏ TÓC và TAI khỏi swap mask
         keep_classes = [1, 2, 3, 4, 5, 10, 11, 12, 13]  # Skin, brows, eyes, nose, lips
         
         for cls in keep_classes:
@@ -134,6 +138,28 @@ class Compositor:
         mask = cv2.dilate(mask, kernel, 1)
         
         return mask
+    def blend_mouth_mask(self, frame, swapped_frame, face):
+        """
+        Blend miệng thật vào swapped frame
+        Dùng create_mouth_mask() + logic blend
+        """
+        try:
+            # Tạo mouth mask từ landmarks
+            mask = self.create_mouth_mask(frame, face)
+            
+            # Blur mask để blend mượt
+            mask = cv2.GaussianBlur(mask, (31, 31), 0)
+            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
+
+            # Blend: giữ miệng thật từ frame gốc
+            final_frame = (
+                frame * mask_3ch + swapped_frame * (1 - mask_3ch)
+            ).astype(np.uint8)
+
+            return final_frame
+        except Exception as e:
+            print(f"Error in blend_mouth_mask: {e}")
+            return swapped_frame
     
     def combine_masks(self, box_mask, occlusion_mask, region_mask, mouth_mask, blur_amount=0.3):
         """
@@ -224,7 +250,7 @@ class Compositor:
         mask_3ch = cv2.cvtColor(final_mask, cv2.COLOR_GRAY2BGR) / 255.0
         output = (swapped_frame * mask_3ch + mouth_blended * (1 - mask_3ch)).astype(np.uint8)
         
-        # ========== DEBUG WINDOWS ==========
+        # ========== DEBUG ==========
         cv2.imshow("1_Box", box_mask)
         if region_mask is not None:
             cv2.imshow("2_Region (no hair/ears)", region_mask)
@@ -233,26 +259,3 @@ class Compositor:
         cv2.imshow("5_Final_Swap", final_mask)
         
         return output
-    
-    def blend_mouth_mask(self, frame, swapped_frame, face):
-        """
-        Blend miệng thật vào swapped frame
-        Dùng create_mouth_mask() + logic blend
-        """
-        try:
-            # Tạo mouth mask từ landmarks
-            mask = self.create_mouth_mask(frame, face)
-            
-            # Blur mask để blend mượt
-            mask = cv2.GaussianBlur(mask, (31, 31), 0)
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-
-            # Blend: giữ miệng thật từ frame gốc
-            final_frame = (
-                frame * mask_3ch + swapped_frame * (1 - mask_3ch)
-            ).astype(np.uint8)
-
-            return final_frame
-        except Exception as e:
-            print(f"Error in blend_mouth_mask: {e}")
-            return swapped_frame
