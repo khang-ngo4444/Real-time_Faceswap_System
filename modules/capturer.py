@@ -1,5 +1,6 @@
 import cv2
 
+
 class Camera:
     """
     This class is mostly completed, maybe some OS related stuffs could be added
@@ -10,7 +11,11 @@ class Camera:
 
     def read(self):
         ret, frame = self.cap.read()
-        return frame if ret else None
+        if ret:
+            frame = cv2.flip(frame, 1)
+            return frame
+        return None
+        # return frame if ret else None
 
     def release(self):
         self.cap.release()
