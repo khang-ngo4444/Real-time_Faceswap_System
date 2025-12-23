@@ -233,3 +233,26 @@ class Compositor:
         cv2.imshow("5_Final_Swap", final_mask)
         
         return output
+    
+    def blend_mouth_mask(self, frame, swapped_frame, face):
+        """
+        Blend miệng thật vào swapped frame
+        Dùng create_mouth_mask() + logic blend
+        """
+        try:
+            # Tạo mouth mask từ landmarks
+            mask = self.create_mouth_mask(frame, face)
+            
+            # Blur mask để blend mượt
+            mask = cv2.GaussianBlur(mask, (31, 31), 0)
+            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
+
+            # Blend: giữ miệng thật từ frame gốc
+            final_frame = (
+                frame * mask_3ch + swapped_frame * (1 - mask_3ch)
+            ).astype(np.uint8)
+
+            return final_frame
+        except Exception as e:
+            print(f"Error in blend_mouth_mask: {e}")
+            return swapped_frame
