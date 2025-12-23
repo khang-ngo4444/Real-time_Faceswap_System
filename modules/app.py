@@ -12,7 +12,7 @@ def run():
     face_parser = FaceParser() # AI tạo mask che chắn
     compositor = Compositor()
 
-    source_img = cv2.imread("assets/sample_6.jpg")
+    source_img = cv2.imread("assets/sample_1.jpg")
     source_face = face_detector.detect(img=source_img)[0]
 
     while True:
