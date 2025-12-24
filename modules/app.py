@@ -114,9 +114,13 @@ class FaceSwapApp:
                                 frame, target_face, self.source_face
                             )
                             if self.settings["blend"]:
+                                # Blend should use swapped frame as source (was using frame,frame)
                                 frame = self.compositor.blend_mouth_mask(
-                                    frame, frame, target_face
+                                    frame, swapped, target_face
                                 )
+                            else:
+                                # Nếu không blend, hiển thị kết quả swap trực tiếp
+                                frame = swapped
 
                         if self.settings["enhance"]:
                             try:
