@@ -4,14 +4,14 @@ from gfpgan import GFPGANer
 
 
 class Compositor:
-    def __init__(self, device):
+    def __init__(self):
         self.gfpgan = GFPGANer(
             model_path="models/GFPGANv1.4.pth",
             upscale=1,
             arch="clean",
             channel_multiplier=2,
             bg_upsampler=None,
-            device = device
+            # device = device
         )
 
     def enhance(self, frame):

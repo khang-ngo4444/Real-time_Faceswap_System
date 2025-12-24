@@ -1,12 +1,9 @@
-from modules import app
-from ui.ui import FaceSwap, run
+from ui.ui import MainUI
 
 
 def main():
-    # app.run()
-
-    face_swap = FaceSwap()
-    run(face_swap)
+    ui = MainUI()
+    ui.run()
 
 
 if __name__ == "__main__":
