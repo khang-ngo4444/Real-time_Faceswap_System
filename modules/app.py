@@ -101,15 +101,22 @@ class FaceSwapApp:
                     if faces:
                         target_face = faces[0]
                         if self.settings["swap"]:
-                            frame = self.face_swapper.swap(
+                            orig_frame = frame.copy()  # giữ frame gốc cho mask/occlusion
+                            swapped = self.face_swapper.swap(
                                 frame, target_face, self.source_face
                             )
 
                             if self.settings["blend"]:
-                                # Lưu ý: Cần đảm bảo compositor trả về đúng format
-                                frame = self.compositor.blend_mouth_mask(
-                                    frame, frame, target_face
+                                swapped = self.compositor.blend_composite(
+                                    orig_frame,          # frame gốc để tính mask/occlusion
+                                    swapped,             # frame đã swap
+                                    target_face,
+                                    parsing_mask=None,   # nếu chưa có parsing
+                                    blur_amount=0.5,
                                 )
+
+                            # Enhance khuôn mặt (GFPGAN); nếu model không có sẽ trả về input
+                            frame = self.compositor.enhance(swapped)
                 except Exception as e:
                     print(f"Processing error: {e}")
 
