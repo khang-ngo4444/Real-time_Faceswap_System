@@ -6,7 +6,7 @@ from modules.utilities import download
 def download_models():
     MODEL_DIR = os.path.join(os.getcwd(), "models")
     MODEL_URLS = [
-        "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx?download=true",
+        "https://huggingface.co/hacksider/deep-live-cam/resolve/main/inswapper_128.onnx",
         "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth"
     ]
 
