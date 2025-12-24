@@ -3,9 +3,9 @@ import cv2
 from gfpgan import GFPGANer
 
 class Compositor:
-    def __init__(self, gfpgan_model_path="models/GFPGANv1.4.pth"):
+    def __init__(self, gfpgan_model_path="models/GFPGANv1.4.pth", verbose=False):
         self.prev_frame = None
-        # GFPGAN optional
+        self.verbose = verbose
         self.gfpgan = None
         if GFPGANer is not None:
             try:
@@ -16,9 +16,11 @@ class Compositor:
                     channel_multiplier=2,
                     bg_upsampler=None,
                 )
-                print("[GFPGAN] Loaded")
+                if self.verbose:
+                    print("[GFPGAN] Loaded")
             except Exception as e:
-                print(f"[GFPGAN] Load failed: {e}")
+                if self.verbose:
+                    print(f"[GFPGAN] Load failed: {e}")
 
     def enhance(self, frame):
         """Face restoration via GFPGAN. If not available, return input."""
@@ -255,10 +257,12 @@ class Compositor:
         # Bước 1: Nếu có region_mask → dùng làm base, nếu không → dùng box_mask
         if region_mask is not None:
             final_mask = region_mask.copy()
-            print("[MASK] Using Region Mask (BiSeNet) as base")
+            if self.verbose:
+                print("[MASK] Using Region Mask (BiSeNet) as base")
         else:
             final_mask = box_mask.copy()
-            print("[MASK] Using Box Mask as base (no parsing available)")
+            if self.verbose:
+                print("[MASK] Using Box Mask as base (no parsing available)")
         
         # Bước 2: Trừ occlusion (vật che) - DILATE THÊM ĐỂ AN TOÀN
         if occlusion_mask is not None:
@@ -266,13 +270,15 @@ class Compositor:
             occl_expanded = cv2.dilate(occlusion_mask, kernel_safe, iterations=2)
             
             final_mask = cv2.bitwise_and(final_mask, cv2.bitwise_not(occl_expanded))
-            occl_pixels = np.count_nonzero(occl_expanded)
-            print(f"[MASK] Occlusion removed: {occl_pixels} pixels")
+            if self.verbose:
+                occl_pixels = np.count_nonzero(occl_expanded)
+                print(f"[MASK] Occlusion removed: {occl_pixels} pixels")
         
         # Bước 3: Trừ mouth mask
         final_mask = cv2.bitwise_and(final_mask, cv2.bitwise_not(mouth_mask))
-        mouth_pixels = np.count_nonzero(mouth_mask)
-        print(f"[MASK] Mouth excluded: {mouth_pixels} pixels")
+        if self.verbose:
+            mouth_pixels = np.count_nonzero(mouth_mask)
+            print(f"[MASK] Mouth excluded: {mouth_pixels} pixels")
         
         # Bước 4: Intersection với box để giới hạn vùng
         final_mask = cv2.bitwise_and(final_mask, box_mask)
@@ -295,22 +301,27 @@ class Compositor:
         h, w = frame.shape[:2]
         
         # ========== TẠO CÁC MASK ==========
-        print("\n========== CREATING MASKS ==========")
+        if self.verbose:
+            print("\n========== CREATING MASKS ==========")
         
         box_mask = self.create_box_mask(frame, face)
-        print(f"[1] Box Mask: {np.count_nonzero(box_mask)} pixels")
+        if self.verbose:
+            print(f"[1] Box Mask: {np.count_nonzero(box_mask)} pixels")
         
         occlusion_mask = self.create_occlusion_mask(frame, face, parsing_mask)
-        print(f"[2] Occlusion Mask: {np.count_nonzero(occlusion_mask)} pixels")
+        if self.verbose:
+            print(f"[2] Occlusion Mask: {np.count_nonzero(occlusion_mask)} pixels")
         
         region_mask = self.create_region_mask(parsing_mask)
-        if region_mask is not None:
-            print(f"[3] Region Mask (no hair/ears): {np.count_nonzero(region_mask)} pixels")
-        else:
-            print("[3] Region Mask: Not available")
+        if self.verbose:
+            if region_mask is not None:
+                print(f"[3] Region Mask (no hair/ears): {np.count_nonzero(region_mask)} pixels")
+            else:
+                print("[3] Region Mask: Not available")
         
         mouth_mask = self.create_mouth_mask(frame, face)
-        print(f"[4] Mouth Mask: {np.count_nonzero(mouth_mask)} pixels")
+        if self.verbose:
+            print(f"[4] Mouth Mask: {np.count_nonzero(mouth_mask)} pixels")
         
         # ========== KẾT HỢP MASKS ==========
         final_mask = self.combine_masks(
@@ -320,8 +331,9 @@ class Compositor:
             mouth_mask,
             blur_amount=blur_amount
         )
-        print(f"[FINAL] Combined Swap Mask: {np.count_nonzero(final_mask > 0)} pixels")
-        
+        if self.verbose:
+            print(f"[FINAL] Combined Swap Mask: {np.count_nonzero(final_mask > 0)} pixels")
+
         # ========== BLEND 2 BƯỚC ==========
         # Bước 1: Blend mouth trước
         mouth_mask_blur = cv2.GaussianBlur(mouth_mask, (31, 31), 0)
@@ -333,11 +345,13 @@ class Compositor:
         output = (swapped_frame * mask_3ch + mouth_blended * (1 - mask_3ch)).astype(np.uint8)
         
         # ========== DEBUG ==========
-        cv2.imshow("1_Box", box_mask)
-        if region_mask is not None:
-            cv2.imshow("2_Region (no hair/ears)", region_mask)
-        cv2.imshow("3_Occlusion", occlusion_mask)
-        cv2.imshow("4_Mouth", mouth_mask)
-        cv2.imshow("5_Final_Swap", final_mask)
-        
+        # Debug windows tắt nếu không verbose
+        if self.verbose:
+            cv2.imshow("1_Box", box_mask)
+            if region_mask is not None:
+                cv2.imshow("2_Region (no hair/ears)", region_mask)
+            cv2.imshow("3_Occlusion", occlusion_mask)
+            cv2.imshow("4_Mouth", mouth_mask)
+            cv2.imshow("5_Final_Swap", final_mask)
+
         return output
