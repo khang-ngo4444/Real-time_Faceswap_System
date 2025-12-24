@@ -1,12 +1,16 @@
+gfpgan
 numpy>=1.23.5,<2
 typing-extensions>=4.8.0
 opencv-python==4.10.0.84
 onnx==1.18.0
 insightface==0.7.3
-torch; sys_platform != 'darwin'
-torch==2.8.0+cu128; sys_platform == 'darwin'
+torch==2.0.1
+torchvision==0.15.2
 torchvision; sys_platform != 'darwin'
 torchvision==0.20.1; sys_platform == 'darwin'
 onnxruntime-silicon==1.16.3; sys_platform == 'darwin' and platform_machine == 'arm64'
 onnxruntime-gpu==1.19.2; sys_platform != 'darwin'
 tensorflow; sys_platform != 'darwin'
+gfpgan==1.3.8
+realesrgan==0.3.0
+basicsr==1.4.2
