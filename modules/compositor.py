@@ -3,8 +3,9 @@ import cv2
 
 class Compositor:
     def __init__(self):
-        # XSeg model sẽ được load riêng (hoặc dùng model có sẵn)
         self.xseg_model = None  # Load từ models/xseg_2.onnx nếu có
+        # Thêm buffer cho motion detection
+        self.prev_frame = None
         
     def create_box_mask(self, frame, face):
         """
@@ -28,15 +29,15 @@ class Compositor:
     
     def create_occlusion_mask(self, frame, face, parsing_mask):
         """
-        MASK LOẠI 2: Occlusion Mask - Improved: Edge + Skin difference để detect tay/che chắn tốt hơn
+        MASK LOẠI 2: Occlusion Mask - SUPER IMPROVED với Motion + Depth + Color
         """
         h, w = frame.shape[:2]
         occl_mask = np.zeros((h, w), dtype=np.uint8)
         
-        # Lấy bbox mở rộng hơn để capture tay chạm mặt
+        # Lấy bbox mở rộng mạnh để capture tay chạm mặt
         bbox = cv2.boundingRect(face.landmark_2d_106.astype(np.int32))
         x, y, bw, bh = bbox
-        pad = int(max(bw, bh) * 0.4)  # Mở rộng mạnh hơn để bao tay
+        pad = int(max(bw, bh) * 0.5)
         x1 = max(0, x - pad)
         y1 = max(0, y - pad)
         x2 = min(w, x + bw + pad)
@@ -46,40 +47,89 @@ class Compositor:
             return occl_mask
         
         face_roi = frame[y1:y2, x1:x2]
-        
-        # 1. Edge detection (tune thấp hơn để bắt finger mỏng)
         gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 30, 100)  # Giảm threshold để nhạy hơn
         
-        # 2. Skin detection (Hình thức đơn giản HSV để phân biệt tay vs mặt - tay thường ít "skin-like" hơn khi che)
+        # ========== 1. MOTION DETECTION (tay đang di chuyển) ==========
+        motion_mask = np.zeros(gray.shape, dtype=np.uint8)
+        if self.prev_frame is not None:
+            try:
+                prev_roi = self.prev_frame[y1:y2, x1:x2]
+                if prev_roi.shape == face_roi.shape:
+                    prev_gray = cv2.cvtColor(prev_roi, cv2.COLOR_BGR2GRAY)
+                    frame_diff = cv2.absdiff(gray, prev_gray)
+                    _, motion_mask = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)
+                    motion_mask = cv2.dilate(motion_mask, np.ones((7,7), np.uint8), iterations=2)
+            except:
+                pass
+        
+        # ========== 2. EDGE DETECTION (siêu nhạy để bắt ngón tay) ==========
+        edges = cv2.Canny(gray, 20, 80) 
+        
+        # Làm mạnh edges bằng morphology
+        kernel_edge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        edges = cv2.dilate(edges, kernel_edge, iterations=1)
+        
+        # ========== 3. DEPTH ESTIMATION (Laplacian Variance - vật gần = blur ít) ==========
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        lap_var = np.abs(laplacian)
+        lap_var = cv2.normalize(lap_var, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        
+        # Vùng có variance cao = chi tiết cao = gần camera (tay)
+        _, depth_mask = cv2.threshold(lap_var, 30, 255, cv2.THRESH_BINARY)
+        
+        # ========== 4. SKIN COLOR DIFFERENCE (tay thường khác màu mặt khi che) ==========
         hsv = cv2.cvtColor(face_roi, cv2.COLOR_BGR2HSV)
+        
+        # Skin detection
         lower_skin = np.array([0, 20, 70], dtype=np.uint8)
         upper_skin = np.array([20, 255, 255], dtype=np.uint8)
         skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
+        
+        # Tìm vùng NON-SKIN (potential hand)
         non_skin = cv2.bitwise_not(skin_mask)
         
-        # Kết hợp edge + non_skin (tay thường có edge cao + ít skin hơn vùng mặt sạch)
-        occl_roi = cv2.bitwise_or(edges, non_skin)
+        # ========== 5. CONTOUR DETECTION (phát hiện hình dạng tay) ==========
+        contour_mask = np.zeros(gray.shape, dtype=np.uint8)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Blur nhẹ + threshold
-        occl_roi = cv2.GaussianBlur(occl_roi, (5, 5), 0)
-        _, occl_roi = cv2.threshold(occl_roi, 50, 255, cv2.THRESH_BINARY)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            # Chỉ giữ contour vừa phải (tay/ngón tay, không phải noise)
+            if 100 < area < (face_roi.shape[0] * face_roi.shape[1] * 0.3):
+                cv2.drawContours(contour_mask, [cnt], -1, 255, -1)
         
-        # Morphology mạnh hơn để fill hole và connect finger
-        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-        occl_roi = cv2.morphologyEx(occl_roi, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+        # ========== KẾT HỢP TẤT CẢ SIGNALS ==========
+        # Weighted combination: edges + motion + depth + non_skin + contours
+        occl_roi = cv2.addWeighted(edges, 0.3, motion_mask, 0.2, 0)
+        occl_roi = cv2.addWeighted(occl_roi, 1.0, depth_mask, 0.2, 0)
+        occl_roi = cv2.addWeighted(occl_roi, 1.0, non_skin, 0.2, 0)
+        occl_roi = cv2.addWeighted(occl_roi, 1.0, contour_mask, 0.1, 0)
         
-        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        occl_roi = cv2.dilate(occl_roi, kernel_dilate, iterations=1)
+        # Threshold final
+        _, occl_roi = cv2.threshold(occl_roi, 80, 255, cv2.THRESH_BINARY)
         
-        # Chỉ giữ vùng POTENTIAL trong face parsing (nếu có parsing_mask)
+        # Close để fill holes và connect fingers
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        occl_roi = cv2.morphologyEx(occl_roi, cv2.MORPH_CLOSE, kernel_close, iterations=3)
+        
+        # Dilate để mở rộng vùng occlusion
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        occl_roi = cv2.dilate(occl_roi, kernel_dilate, iterations=2)
+        
+        # ========== CHỈ GIỮ VÙNG TRONG PARSING MASK (nếu có) ==========
         if parsing_mask is not None:
             parse_roi = parsing_mask[y1:y2, x1:x2]
+            # Mở rộng parsing mask để bao cả vùng potential occlusion
             potential_face = (parse_roi > 0).astype(np.uint8) * 255
-            # Hoặc mở rộng: potential_face = cv2.dilate(potential_face, kernel_dilate, iterations=2)
+            kernel_expand = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+            potential_face = cv2.dilate(potential_face, kernel_expand, iterations=2)
+            
+            # Chỉ giữ occlusion trong vùng face
             occl_roi = cv2.bitwise_and(occl_roi, potential_face)
         
         occl_mask[y1:y2, x1:x2] = occl_roi
+        self.prev_frame = frame.copy()
+        
         return occl_mask
     
     def create_region_mask(self, parsing_mask, exclude_regions=['hair', 'ears']):
@@ -109,7 +159,6 @@ class Compositor:
         h, w = parsing_mask.shape[:2]
         region_mask = np.zeros((h, w), dtype=np.uint8)
         
-        #Loại bỏ TÓC và TAI khỏi swap mask
         keep_classes = [1, 2, 3, 4, 5, 10, 11, 12, 13]  # Skin, brows, eyes, nose, lips
         
         for cls in keep_classes:
@@ -138,6 +187,7 @@ class Compositor:
         mask = cv2.dilate(mask, kernel, 1)
         
         return mask
+    
     def blend_mouth_mask(self, frame, swapped_frame, face):
         """
         Blend miệng thật vào swapped frame
@@ -167,7 +217,7 @@ class Compositor:
         
         Logic:
         1. Bắt đầu với Region Mask (BiSeNet) - loại bỏ tóc, tai
-        2. Trừ đi Occlusion Mask (vật che)
+        2. Trừ đi Occlusion Mask (vật che) - PRIORITY CAO
         3. Trừ đi Mouth Mask (giữ miệng thật)
         4. Intersection với Box Mask (giới hạn vùng)
         """
@@ -181,10 +231,13 @@ class Compositor:
             final_mask = box_mask.copy()
             print("[MASK] Using Box Mask as base (no parsing available)")
         
-        # Bước 2: Trừ occlusion (vật che)
+        # Bước 2: Trừ occlusion (vật che) - DILATE THÊM ĐỂ AN TOÀN
         if occlusion_mask is not None:
-            final_mask = cv2.bitwise_and(final_mask, cv2.bitwise_not(occlusion_mask))
-            occl_pixels = np.count_nonzero(occlusion_mask)
+            kernel_safe = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+            occl_expanded = cv2.dilate(occlusion_mask, kernel_safe, iterations=2)
+            
+            final_mask = cv2.bitwise_and(final_mask, cv2.bitwise_not(occl_expanded))
+            occl_pixels = np.count_nonzero(occl_expanded)
             print(f"[MASK] Occlusion removed: {occl_pixels} pixels")
         
         # Bước 3: Trừ mouth mask
@@ -195,7 +248,7 @@ class Compositor:
         # Bước 4: Intersection với box để giới hạn vùng
         final_mask = cv2.bitwise_and(final_mask, box_mask)
         
-        # Blur để blend mượt (theo FaceFusion: 0.3 default, 0.5-0.6 để mượt hơn)
+        # Blur để blend mượt
         blur_kernel_size = int(35 * (blur_amount / 0.3))  # Scale với blur_amount
         if blur_kernel_size % 2 == 0:
             blur_kernel_size += 1
