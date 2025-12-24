@@ -2,9 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import cv2  # Chỉ dùng để convert màu hiển thị, không dùng logic AI
-
-# Import Logic Class
-from app import FaceSwapApp
+from modules.app import App
 from PIL import Image, ImageTk
 
 # --- THEME CONFIG ---
@@ -144,7 +142,7 @@ class MaterialSwitch(tk.Canvas):
 class MainUI:
     def __init__(self):
         # 1. Khởi tạo Logic Core
-        self.app = FaceSwapApp()
+        self.app = App()
 
         # 2. Setup Window
         self.root = tk.Tk()
@@ -398,7 +396,3 @@ class MainUI:
     def on_close(self):
         self.app.stop_camera()
         self.root.destroy()
-
-
-if __name__ == "__main__":
-    MainUI().run()

@@ -1,3 +1,4 @@
+tqdm
 gfpgan
 numpy>=1.23.5,<2
 typing-extensions>=4.8.0
