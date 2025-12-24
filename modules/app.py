@@ -1,15 +1,13 @@
 import threading
 import time
 
-import cv2
-
-from modules import capturer
+import modules.capturer as capturer
 from modules.compositor import Compositor
 from modules.face_detector import FaceDetector
 from modules.face_swapper import FaceSwapper
+import cv2
 
-
-class FaceSwapApp:
+class App:
     def __init__(self):
         self.models_loaded = False
         self.is_running = False
