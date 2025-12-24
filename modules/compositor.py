@@ -1,13 +1,28 @@
 import numpy as np
 import cv2
+from gfpgan import GFPGANer
 
 
 class Compositor:
     def __init__(self):
-        pass
+        self.gfpgan = GFPGANer(
+            model_path="models/GFPGANv1.4.pth",
+            upscale=1,
+            arch="clean",
+            channel_multiplier=2,
+            bg_upsampler=None
+        )
+
+    def enhance(self, frame, strength=0.6):
+        restored, _, _ = self.gfpgan.enhance(
+            frame,
+            has_aligned=False,
+            paste_back=True
+        )
+        return cv2.addWeighted(restored, strength, frame, 1-strength, 0)
 
     def blend_mouth_mask(self, frame, swapped_frame, face):
-        h, w, _ = frame.shape
+        h, w, _ = frame.shaptorchvision.transforms.functional_tensore
         mask = np.zeros((h, w), dtype=np.uint8)
 
         landmarks = face.landmark_2d_106.astype(np.int32)
