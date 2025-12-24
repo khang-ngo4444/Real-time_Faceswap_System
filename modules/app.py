@@ -23,7 +23,9 @@ class FaceSwapApp:
         self.frame_count = 0
         self.start_time = 0
 
-        self.settings = {"detect": True, "swap": True, "blend": True, "enhance": False}
+        # mouth_mask = True  => preserve mouth from original (use compositor masks)
+        # mouth_mask = False => full-face swap (show swapped)
+        self.settings = {"detect": True, "swap": True, "mouth_mask": True, "enhance": False}
 
         threading.Thread(target=self._load_models, daemon=True).start()
 
@@ -113,13 +115,22 @@ class FaceSwapApp:
                             swapped = self.face_swapper.swap(
                                 frame, target_face, self.source_face
                             )
-                            if self.settings["blend"]:
-                                # Blend should use swapped frame as source (was using frame,frame)
-                                frame = self.compositor.blend_mouth_mask(
-                                    frame, swapped, target_face
-                                )
+                            # Mouth-mask behavior:
+                            # - mouth_mask True  => preserve mouth from original (use compositor.blend_composite)
+                            # - mouth_mask False => full-face swap (show swapped)
+                            if self.settings.get("mouth_mask", True):
+                                try:
+                                    frame = self.compositor.blend_composite(
+                                        orig_frame,
+                                        swapped,
+                                        target_face,
+                                        parsing_mask=None,
+                                        blur_amount=0.5,
+                                    )
+                                except Exception as e:
+                                    print(f"Blend Error: {e}")
+                                    frame = swapped
                             else:
-                                # Nếu không blend, hiển thị kết quả swap trực tiếp
                                 frame = swapped
 
                         if self.settings["enhance"]:

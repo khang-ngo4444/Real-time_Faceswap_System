@@ -278,7 +278,7 @@ class MainUI:
         features = [
             ("Detect", "detect", True),
             ("Swap", "swap", True),
-            ("Blend", "blend", True),
+            ("Mouth Mask", "mouth_mask", True),
             ("Enhance", "enhance", False),
         ]
         for i, (label, key, val) in enumerate(features):
