@@ -1,11 +1,40 @@
 import numpy as np
 import cv2
+from gfpgan import GFPGANer
 
 class Compositor:
-    def __init__(self):
-        self.xseg_model = None  # Load từ models/xseg_2.onnx nếu có
-        # Thêm buffer cho motion detection
+    def __init__(self, gfpgan_model_path="models/GFPGANv1.4.pth"):
         self.prev_frame = None
+        # GFPGAN optional
+        self.gfpgan = None
+        if GFPGANer is not None:
+            try:
+                self.gfpgan = GFPGANer(
+                    model_path=gfpgan_model_path,
+                    upscale=1,
+                    arch="clean",
+                    channel_multiplier=2,
+                    bg_upsampler=None,
+                )
+                print("[GFPGAN] Loaded")
+            except Exception as e:
+                print(f"[GFPGAN] Load failed: {e}")
+
+    def enhance(self, frame):
+        """Face restoration via GFPGAN. If not available, return input."""
+        if self.gfpgan is None:
+            return frame
+        try:
+            _, _, restored = self.gfpgan.enhance(
+                frame,
+                has_aligned=False,
+                only_center_face=False,
+                paste_back=True,
+            )
+            return restored
+        except Exception as e:
+            print(f"[GFPGAN] Enhance failed: {e}")
+            return frame
         
     def create_box_mask(self, frame, face):
         """
