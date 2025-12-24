@@ -4,25 +4,27 @@ from gfpgan import GFPGANer
 
 
 class Compositor:
-    def __init__(self):
+    def __init__(self, device):
         self.gfpgan = GFPGANer(
             model_path="models/GFPGANv1.4.pth",
             upscale=1,
             arch="clean",
             channel_multiplier=2,
-            bg_upsampler=None
+            bg_upsampler=None,
+            device = device
         )
 
-    def enhance(self, frame, strength=0.6):
-        restored, _, _ = self.gfpgan.enhance(
+    def enhance(self, frame):
+        _, _, restored = self.gfpgan.enhance(
             frame,
             has_aligned=False,
+            only_center_face=False,
             paste_back=True
         )
-        return cv2.addWeighted(restored, strength, frame, 1-strength, 0)
+        return restored
 
     def blend_mouth_mask(self, frame, swapped_frame, face):
-        h, w, _ = frame.shaptorchvision.transforms.functional_tensore
+        h, w, _ = frame.shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
         landmarks = face.landmark_2d_106.astype(np.int32)
