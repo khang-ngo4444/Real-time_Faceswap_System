@@ -2,6 +2,7 @@
 venv/
 .idea/
 models/
+gfpgans/
 inswapper_128.onnx
 test.py
 __pycache__/
