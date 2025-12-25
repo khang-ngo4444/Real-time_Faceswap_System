@@ -51,8 +51,9 @@ class Compositor:
                     has_aligned=False,
                     only_center_face=False,
                     paste_back=True,
+                    weight=0.4
                 )
-                
+
                 # Cập nhật cache
                 with self.enhancement_lock:
                     self.enhanced_cache = restored

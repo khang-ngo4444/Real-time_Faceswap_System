@@ -42,14 +42,14 @@ class FaceSwapApp:
 
     def set_source_image(self, path):
         if not self.models_initialized:
-            return False, "Đang tải models...", None
+            return False, "Models are initializing", None
         img = cv2.imread(path)
         if img is None:
-            return False, "Lỗi đọc file ảnh", None
+            return False, "Unable to upload image", None
 
         faces = self.face_detector.detect(img)
         if not faces:
-            return False, "Không tìm thấy khuôn mặt", None
+            return False, "No face found from image", None
 
         self.source_face = faces[0]
         return True, "Success", img
@@ -60,9 +60,9 @@ class FaceSwapApp:
 
     def start_camera(self):
         if not self.models_initialized:
-            return False, "Hệ thống đang khởi động..."
+            return False, "Models are initializing"
         if self.source_face is None:
-            return False, "Chưa chọn ảnh nguồn"
+            return False, "No source image found"
 
         try:
             self.cap = capturer.Camera()
@@ -133,22 +133,23 @@ class FaceSwapApp:
                             else:
                                 frame = swapped
 
-                        if self.settings["enhance"]:
-                            try:
-                                frame = self.compositor.enhance(frame)
-                            except Exception as e:
-                                print(f"Enhance Error: {e}")
+                            if self.settings["enhance"]:
+                                try:
+                                    frame = self.compositor.enhance(frame)
+                                except Exception as e:
+                                    print(f"Enhance Error: {e}")
 
-                                swapped = self.compositor.blend_composite(
-                                    orig_frame,          # frame gốc để tính mask/occlusion
-                                    swapped,             # frame đã swap
-                                    target_face,
-                                    parsing_mask=None,   # nếu chưa có parsing
-                                    blur_amount=0.5,
-                                )
+                                    swapped = self.compositor.blend_composite(
+                                        orig_frame,          # frame gốc để tính mask/occlusion
+                                        swapped,             # frame đã swap
+                                        target_face,
+                                        parsing_mask=None,   # nếu chưa có parsing
+                                        blur_amount=0.5,
+                                    )
 
-                            # Enhance khuôn mặt (GFPGAN); nếu model không có sẽ trả về input
-                            frame = self.compositor.enhance(swapped)
+                                # Enhance khuôn mặt (GFPGAN); nếu model không có sẽ trả về input
+                                frame = self.compositor.enhance(swapped)
+
                 except Exception as e:
                     print(f"Processing Error: {e}")
 
