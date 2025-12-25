@@ -276,7 +276,7 @@ class MainUI:
     def _build_settings_grid(self):
         self.vars = {}
         features = [
-            ("Detect", "detect", True),
+            ("Show Box", "bounding_box", False),
             ("Swap", "swap", True),
             ("Mouth Mask", "mouth_mask", True),
             ("Enhance", "enhance", False),

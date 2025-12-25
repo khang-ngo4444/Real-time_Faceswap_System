@@ -25,7 +25,7 @@ class FaceSwapApp:
 
         # mouth_mask = True  => preserve mouth from original (use compositor masks)
         # mouth_mask = False => full-face swap (show swapped)
-        self.settings = {"detect": True, "swap": True, "mouth_mask": True, "enhance": False}
+        self.settings = {"bounding_box": False, "swap": True, "mouth_mask": True, "enhance": False}
 
         threading.Thread(target=self._load_models, daemon=True).start()
 
@@ -91,7 +91,6 @@ class FaceSwapApp:
     def _process_loop(self):
         # Biến dùng để tính FPS trung bình mượt hơn
         prev_frame_time = 0
-        new_frame_time = 0
 
         while self.is_running:
             frame = self.cap.read()
@@ -104,7 +103,7 @@ class FaceSwapApp:
 
             frame = cv2.flip(frame, 1)
 
-            if self.source_face and self.settings["detect"]:
+            if self.source_face:
                 try:
                     faces = self.face_detector.detect(frame)
                     if faces:
@@ -149,6 +148,11 @@ class FaceSwapApp:
 
                                 # Enhance khuôn mặt (GFPGAN); nếu model không có sẽ trả về input
                                 frame = self.compositor.enhance(swapped)
+
+                            if self.settings["bounding_box"]:
+                                face = self.face_detector.detect(frame)[0]
+                                x1, y1, x2, y2 = face.bbox.astype(int)
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 200), 1)
 
                 except Exception as e:
                     print(f"Processing Error: {e}")
